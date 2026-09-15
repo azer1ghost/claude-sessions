@@ -5,6 +5,8 @@ import { bytes, num, ago, dateTime } from './format.js'
 /* ------------------------------------------------------------------ state */
 
 const CONTEXT_WINDOW = 200_000
+const LIVE_WINDOW = 120_000   // a transcript touched this recently counts as running
+const POLL_EVERY = 8_000
 const windowFor = (t) => (t > CONTEXT_WINDOW ? 1_000_000 : CONTEXT_WINDOW)
 
 const state = {
@@ -26,6 +28,7 @@ const state = {
   chatLoading: false,
   hideTools: false,
   showDetails: true,
+  live: { sessions: new Set(), projects: new Set() },  // written to in the last LIVE_WINDOW ms
   search: { q: '', active: false, loading: false, results: [] },
   modal: null,
 }
@@ -107,6 +110,8 @@ function toast(msg, kind = 'ok') {
 
 const projectName = (p) => p.path.split('/').filter(Boolean).slice(-2).join('/') || p.path
 
+const liveDot = (on) => (on ? '<span class="live-dot" title="active right now"></span>' : '')
+
 function sessionRow(s, { nested = true } = {}) {
   const on = state.session === s.id
   const msgs = (s.counts?.user ?? 0) + (s.counts?.assistant ?? 0)
@@ -115,7 +120,10 @@ function sessionRow(s, { nested = true } = {}) {
     class="group flex cursor-pointer items-start gap-2 rounded-md ${nested ? 'ml-3 border-l border-line pl-2.5' : ''} py-1.5 pr-1.5
            ${on ? 'bg-clay-soft' : 'hover:bg-cream'}">
     <div class="min-w-0 flex-1">
-      <div class="truncate text-[12.5px] leading-tight ${on ? 'font-medium text-clay' : 'text-ink-soft'}">${esc(s.title || s.id)}</div>
+      <div class="flex items-center gap-1.5">
+        ${liveDot(state.live.sessions.has(`${s.projectId}/${s.id}`))}
+        <div class="truncate text-[12.5px] leading-tight ${on ? 'font-medium text-clay' : 'text-ink-soft'}">${esc(s.title || s.id)}</div>
+      </div>
       ${nested ? '' : `<div class="truncate text-[10px] text-muted">${esc(s.cwd || s.projectId)}</div>`}
       <div class="mt-0.5 flex items-center gap-1.5 text-[10px] text-faint">
         <span>${esc(ago(s.lastTs || s.mtime))}</span><span>·</span><span>${msgs} msgs</span>
@@ -139,6 +147,8 @@ function ctxColor(t) {
 
 function renderTree() {
   const el = $('#tree')
+  const focused = document.activeElement
+  const keepFilter = focused?.id === 'project-filter' ? focused.selectionStart : null
   const q = state.projectFilter.toLowerCase()
   const list = state.projects.filter((p) => !q || p.path.toLowerCase().includes(q) || p.id.toLowerCase().includes(q))
 
@@ -177,7 +187,10 @@ function renderTree() {
             class="group flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1.5 ${open ? 'bg-cream' : 'hover:bg-cream/70'}">
             <svg class="h-3 w-3 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
             <div class="min-w-0 flex-1">
-              <div class="truncate text-[12.5px] font-medium text-ink">${esc(projectName(p))}</div>
+              <div class="flex items-center gap-1.5">
+                ${liveDot(state.live.projects.has(p.id))}
+                <div class="truncate text-[12.5px] font-medium text-ink">${esc(projectName(p))}</div>
+              </div>
               <div class="truncate text-[10px] text-faint">${p.sessions} sessions · ${bytes(p.size)} · ${esc(ago(p.mtime))}</div>
             </div>
           </div>
@@ -623,6 +636,42 @@ function renderModal() {
 
 /* ---------------------------------------------------------------- actions */
 
+async function pollActivity() {
+  let a
+  try {
+    a = await api.activity(LIVE_WINDOW)
+  } catch {
+    return
+  }
+  state.live = {
+    sessions: new Set(a.active.map((x) => `${x.projectId}/${x.id}`)),
+    projects: new Set(a.active.map((x) => x.projectId)),
+  }
+
+  // refresh mtimes and re-sort so the most recently touched project stays on top
+  const fresh = new Map(a.projects.map((p) => [p.id, p]))
+  let changed = state.projects.length !== a.projects.length
+  for (const p of state.projects) {
+    const f = fresh.get(p.id)
+    if (!f) { changed = true; continue }
+    if (f.mtime !== p.mtime || f.sessions !== p.sessions) changed = true
+    p.mtime = f.mtime
+    p.sessions = f.sessions
+  }
+  if (changed && state.projects.length === a.projects.length) {
+    state.projects = state.projects.filter((p) => fresh.has(p.id))
+    state.projects.sort((x, y) => y.mtime - x.mtime)
+  }
+  // a project appeared or disappeared — pull the full list again
+  if (state.projects.length !== a.projects.length) return loadProjects()
+
+  for (const x of a.active) {
+    const row = state.sessionsByProject[x.projectId]?.find((s) => s.id === x.id)
+    if (row) { row.mtime = x.mtime; row.size = x.size }
+  }
+  if (!state.modal) renderTree()
+}
+
 async function loadProjects() {
   state.projects = await api.projects()
   state.stats = await api.stats()
@@ -1006,6 +1055,8 @@ document.addEventListener('keydown', (e) => {
 /* -------------------------------------------------------------------- boot */
 
 renderThemeButton()
+setInterval(pollActivity, POLL_EVERY)
+pollActivity()
 renderTree()
 renderChat()
 renderDetails()

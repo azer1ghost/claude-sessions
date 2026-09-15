@@ -390,6 +390,48 @@ export async function listSessions(projectId) {
   return out
 }
 
+/* ------------------------------------------------------------ activity */
+
+/** Cheap poll: freshest mtime per project plus every session written to in the
+    last `windowMs` — that is what Claude Code is touching right now. */
+export async function activity({ windowMs = 120_000 } = {}) {
+  const now = Date.now()
+  let entries = []
+  try {
+    entries = await fsp.readdir(PROJECTS_DIR, { withFileTypes: true })
+  } catch {
+    return { now, windowMs, projects: [], active: [] }
+  }
+  const projects = []
+  const active = []
+  for (const e of entries) {
+    if (!e.isDirectory() || e.name.startsWith('.')) continue
+    const dir = path.join(PROJECTS_DIR, e.name)
+    let files = []
+    try {
+      files = (await fsp.readdir(dir)).filter(isJsonl)
+    } catch {
+      continue
+    }
+    if (!files.length) continue
+    let mtime = 0
+    for (const f of files) {
+      let st
+      try {
+        st = await fsp.stat(path.join(dir, f))
+      } catch {
+        continue
+      }
+      if (st.mtimeMs > mtime) mtime = st.mtimeMs
+      if (now - st.mtimeMs < windowMs)
+        active.push({ projectId: e.name, id: f.slice(0, -6), mtime: st.mtimeMs, size: st.size })
+    }
+    projects.push({ id: e.name, sessions: files.length, mtime })
+  }
+  projects.sort((a, b) => b.mtime - a.mtime)
+  return { now, windowMs, projects, active }
+}
+
 /* --------------------------------------------------------------- sweep */
 
 /** Cheap metadata for the cleanup preview: cached meta when we already have it,

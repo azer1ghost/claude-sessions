@@ -2,7 +2,7 @@ import express from 'express'
 import fs from 'node:fs'
 import {
   listProjects, listSessions, sessionMeta, getMessages, getBlock, exportMarkdown, listSubagents,
-  staleSessions, sweepSessions,
+  staleSessions, sweepSessions, activity,
   trashSession, listTrash, restoreTrash, purgeTrash, sessionFile, stats,
 } from './store.js'
 import { searchResults } from './search.js'
@@ -21,6 +21,11 @@ const wrap = (fn) => (req, res) => {
 const safeId = (s) => typeof s === 'string' && s.length && !s.includes('/') && !s.includes('..')
 
 app.get('/api/stats', wrap(async (_req, res) => res.json(await stats())))
+
+app.get('/api/activity', wrap(async (req, res) => {
+  const windowMs = Math.min(Math.max(Number(req.query.window) || 120_000, 5_000), 3_600_000)
+  res.json(await activity({ windowMs }))
+}))
 
 app.get('/api/projects', wrap(async (_req, res) => res.json(await listProjects())))
 

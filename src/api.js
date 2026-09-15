@@ -7,6 +7,7 @@ const j = async (url, opts) => {
 export const api = {
   stats: () => j('/api/stats'),
   projects: () => j('/api/projects'),
+  activity: (windowMs = 120000) => j(`/api/activity?window=${windowMs}`),
   sessions: (pid) => j(`/api/projects/${pid}/sessions`),
   session: (pid, sid, { offset = 0, limit = 60, filter = 'all', sub = '' } = {}) =>
     j(`/api/sessions/${pid}/${sid}?offset=${offset}&limit=${limit}&filter=${filter}&sub=${encodeURIComponent(sub)}`),

@@ -19,6 +19,10 @@ out of the transcripts themselves.
 
 **Sidebar tree** — projects (resolved to their real paths on disk) with their
 sessions nested underneath: title, age, message count, size, context usage.
+A pulsing blue dot marks whatever Claude Code is writing to right now (any
+transcript touched in the last 2 minutes), on both the session and its project.
+The tree polls `/api/activity` every 8s — a ~50 ms stat sweep — so ages refresh
+and the most recently active project keeps floating to the top.
 
 **Chat pane** — the full transcript: user/assistant text rendered as markdown,
 thinking, tool calls and tool results in collapsible blocks, images inline.

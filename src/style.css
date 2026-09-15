@@ -64,6 +64,28 @@ h1, h2, h3, .font-display { font-family: var(--font-serif); letter-spacing: -0.0
 ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
 
 input, textarea, select { font-family: inherit; }
+
+/* pulsing marker for a session Claude is writing to right now */
+.live-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 9999px;
+  background: #2f6fed;
+  box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.16);
+  animation: live-pulse 1.2s ease-in-out infinite;
+}
+:root[data-theme="dark"] .live-dot {
+  background: #5b9bff;
+  box-shadow: 0 0 0 3px rgba(91, 155, 255, 0.2);
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .35; transform: scale(.75); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+}
 summary::-webkit-details-marker { display: none; }
 
 /* markdown output */
