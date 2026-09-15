@@ -21,19 +21,14 @@ const state = {
   meta: null,
   messages: [],
   total: 0,
-  offset: 0,
+  head: 0,      // index of the first loaded message; the window always ends at the last one
   limit: 60,
   chatLoading: false,
   hideTools: false,
   showDetails: true,
   search: { q: '', active: false, loading: false, results: [] },
   modal: null,
-  live: null,               // { running, lines: [], draft, mode }
-  composerMode: 'default',
-  draft: '',
 }
-
-let liveAbort = null
 
 const $ = (sel) => document.querySelector(sel)
 
@@ -288,6 +283,13 @@ function renderChat() {
           <input type="checkbox" data-action="toggle-tools" ${state.hideTools ? 'checked' : ''} class="accent-clay" /> hide tools
         </label>
         <button data-action="jump-end" class="rounded-lg border border-line px-2 py-1 text-[11px] text-muted hover:text-ink">jump to end</button>
+        ${
+          state.sub
+            ? ''
+            : `<button data-action="open-terminal" class="rounded-lg border border-clay/50 bg-clay-soft px-2 py-1 text-[11px] font-medium text-clay hover:border-clay">
+                 ⌘ open in terminal
+               </button>`
+        }
         <a href="/api/sessions/${esc(m.projectId)}/${esc(state.session)}/export?sub=${encodeURIComponent(state.sub)}" class="rounded-lg border border-line px-2 py-1 text-[11px] text-muted hover:text-ink">.md</a>
         <a href="/api/sessions/${esc(m.projectId)}/${esc(state.session)}/raw?sub=${encodeURIComponent(state.sub)}" class="rounded-lg border border-line px-2 py-1 text-[11px] text-muted hover:text-ink">.jsonl</a>
         ${
@@ -309,69 +311,20 @@ function renderChat() {
     <div id="chat-scroll" class="min-h-0 flex-1 overflow-y-auto">
       <div class="mx-auto max-w-4xl space-y-2.5 p-4">
         ${state.chatLoading && !state.messages.length ? `<div class="py-10 text-center text-xs text-muted">Loading… (a few seconds for large sessions)</div>` : ''}
-        ${shown.map(messageHtml).join('')}
-        ${liveHtml()}
         ${
-          state.messages.length < state.total
-            ? `<button data-action="load-more" class="w-full rounded-lg border border-line py-2 text-xs text-muted hover:border-line hover:text-ink">
-                 ${state.chatLoading ? 'Loading…' : `Load ${Math.min(state.limit, state.total - state.messages.length)} more messages (${state.messages.length}/${state.total})`}
+          state.head > 0
+            ? `<button data-action="load-earlier" class="w-full rounded-lg border border-line py-2 text-xs text-muted hover:border-clay/60 hover:text-ink">
+                 ${state.chatLoading ? 'Loading…' : `Load ${Math.min(state.limit, state.head)} earlier messages (${state.total - state.head}/${state.total})`}
                </button>`
             : state.messages.length
-              ? `<div class="py-4 text-center text-[11px] text-ghost">— end of session —</div>`
+              ? `<div class="py-2 text-center text-[11px] text-ghost">— start of session —</div>`
               : ''
         }
+        ${shown.map(messageHtml).join('')}
+        ${state.messages.length ? `<div class="py-4 text-center text-[11px] text-ghost">— end of session —</div>` : ''}
       </div>
     </div>
-    ${state.sub ? '' : composerHtml()}`
-}
-
-function liveHtml() {
-  const live = state.live
-  if (!live) return ''
-  return `
-    <article class="rounded-xl border border-moss/40 bg-moss/5 px-3.5 py-3">
-      <header class="mb-1.5 flex items-center gap-2 text-[11px]">
-        <span class="h-1.5 w-1.5 rounded-full ${live.running ? 'animate-pulse bg-moss' : 'bg-ghost'}"></span>
-        <span class="font-medium text-moss">${live.running ? 'Claude is working…' : 'Response complete'}</span>
-        ${live.running ? `<button data-action="stop-live" class="ml-auto rounded border border-line px-2 py-0.5 text-[10.5px] text-muted hover:text-ink">stop</button>` : ''}
-      </header>
-      <div class="space-y-1.5">
-        ${live.lines
-          .map((l) =>
-            l.kind === 'text'
-              ? `<div class="md text-[13.5px] text-ink">${md(l.text)}</div>`
-              : `<div class="text-[11.5px] ${l.kind === 'err' ? 'text-rust' : 'text-muted'}">${esc(l.text)}</div>`
-          )
-          .join('')}
-      </div>
-    </article>`
-}
-
-function composerHtml() {
-  const busy = state.live?.running
-  return `
-    <div class="shrink-0 border-t border-line bg-paper p-3">
-      <div class="mx-auto flex max-w-4xl items-end gap-2">
-        <textarea id="composer" rows="2" ${busy ? 'disabled' : ''}
-          placeholder="Continue this session…  (⌘/Ctrl + Enter to send)"
-          class="min-h-[44px] flex-1 resize-y rounded-lg border border-line bg-card px-3 py-2 text-[13px] text-ink placeholder-ghost outline-none focus:border-clay/70 disabled:opacity-50">${esc(state.draft)}</textarea>
-        <div class="flex flex-col gap-1.5">
-          <select id="composer-mode" class="rounded-lg border border-line bg-card px-2 py-1 text-[11px] text-muted outline-none">
-            <option value="default" ${state.composerMode === 'default' ? 'selected' : ''}>perms: default</option>
-            <option value="acceptEdits" ${state.composerMode === 'acceptEdits' ? 'selected' : ''}>acceptEdits</option>
-            <option value="plan" ${state.composerMode === 'plan' ? 'selected' : ''}>plan</option>
-            <option value="bypassPermissions" ${state.composerMode === 'bypassPermissions' ? 'selected' : ''}>bypass (risky)</option>
-          </select>
-          <button data-action="send" ${busy ? 'disabled' : ''}
-            class="rounded-lg bg-clay px-3 py-1.5 text-xs font-medium text-white hover:bg-clay/85 disabled:opacity-50">
-            ${busy ? 'working…' : 'Send'}
-          </button>
-        </div>
-      </div>
-      <div class="mx-auto mt-1 max-w-4xl text-[10px] text-faint">
-        <code class="text-muted">claude --resume ${esc(state.session || '')}</code> runs in ${esc(state.meta?.cwd || '')} — the reply is appended to the same transcript file.
-      </div>
-    </div>`
+`
 }
 
 /* ---------------------------------------------------------------- details */
@@ -703,10 +656,10 @@ async function toggleProject(pid) {
   await loadSessions(pid)
 }
 
-async function openSession(pid, sid, sub = '', { tail = false } = {}) {
+async function openSession(pid, sid, sub = '') {
   state.session = sid
   state.sub = sub
-  state.offset = 0
+  state.head = 0
   state.messages = []
   state.total = 0
   state.meta = (!sub && state.sessionsByProject[pid]?.find((s) => s.id === sid)) || null
@@ -716,17 +669,19 @@ async function openSession(pid, sid, sub = '', { tail = false } = {}) {
   renderChat()
   renderDetails()
   try {
-    const r = await api.session(pid, sid, { offset: tail ? -1 : 0, limit: state.limit, sub })
+    // sessions always open on their newest message
+    const r = await api.session(pid, sid, { offset: -1, limit: state.limit, sub })
     state.meta = r.meta
     state.messages = r.messages
     state.total = r.total
-    state.offset = r.offset + r.messages.length
+    state.head = r.offset
   } catch (e) {
     toast(e.message, 'err')
   }
   state.chatLoading = false
   renderChat()
   renderDetails()
+  scrollChatToEnd()
 
   if (!sub) {
     try {
@@ -736,24 +691,32 @@ async function openSession(pid, sid, sub = '', { tail = false } = {}) {
   }
 }
 
-async function loadMore() {
-  if (state.chatLoading || state.messages.length >= state.total) return
+function scrollChatToEnd() {
+  const el = document.getElementById('chat-scroll')
+  if (el) el.scrollTop = el.scrollHeight
+}
+
+async function loadEarlier() {
+  if (state.chatLoading || state.head <= 0) return
+  const limit = Math.min(state.limit, state.head)
+  const offset = state.head - limit
+  const el = document.getElementById('chat-scroll')
+  const before = el ? el.scrollHeight - el.scrollTop : 0
   state.chatLoading = true
   renderChat()
   try {
-    const r = await api.session(state.meta.projectId, state.session, {
-      offset: state.offset,
-      limit: state.limit,
-      sub: state.sub,
-    })
-    state.messages = state.messages.concat(r.messages)
-    state.offset += r.messages.length
+    const r = await api.session(state.meta.projectId, state.session, { offset, limit, sub: state.sub })
+    state.messages = r.messages.concat(state.messages)
+    state.head = r.offset
     state.total = r.total
   } catch (e) {
     toast(e.message, 'err')
   }
   state.chatLoading = false
   renderChat()
+  // keep the message the user was reading in place
+  const after = document.getElementById('chat-scroll')
+  if (after) after.scrollTop = after.scrollHeight - before
 }
 
 async function runSearch(q) {
@@ -768,62 +731,18 @@ async function runSearch(q) {
   renderTree()
 }
 
-async function sendPrompt() {
-  const box = document.getElementById('composer')
-  const text = (box?.value || state.draft).trim()
-  if (!text || state.live?.running) return
-  state.draft = ''
-  state.live = { running: true, lines: [{ kind: 'info', text: 'starting…' }] }
-  renderChat()
-
-  liveAbort = new AbortController()
-  let pending = null
-  const flush = () => {
-    pending = null
-    renderChat()
-  }
-  const push = (kind, t) => {
-    const last = state.live.lines[state.live.lines.length - 1]
-    if (kind === 'text' && last?.kind === 'text') last.text += t
-    else state.live.lines.push({ kind, text: t })
-    if (!pending) pending = setTimeout(flush, 200)
-  }
-
+async function openTerminal() {
+  const m = state.meta
+  if (!m) return
   try {
-    await api.continue(
-      state.meta.projectId,
-      state.session,
-      text,
-      state.composerMode,
-      (ev) => {
-        if (ev.type === 'started') {
-          state.live.lines = [{ kind: 'info', text: `${ev.cwd} · perms: ${ev.mode}` }]
-        } else if (ev.type === 'assistant') {
-          for (const b of ev.message?.content || []) {
-            if (b.type === 'text' && b.text) push('text', b.text)
-            if (b.type === 'tool_use') push('info', `→ ${b.name}`)
-          }
-        } else if (ev.type === 'result') {
-          push('info', `done · ${ev.num_turns ?? '?'} turns${ev.duration_ms ? ' · ' + Math.round(ev.duration_ms / 1000) + 's' : ''}`)
-        } else if (ev.type === 'stderr' || ev.type === 'fatal') {
-          push('err', ev.text || ev.error)
-        }
-      },
-      liveAbort.signal
-    )
+    const r = await api.openTerminal(m.projectId, state.session)
+    toast(`Terminal opened in ${r.cwd}`)
   } catch (e) {
-    if (e.name !== 'AbortError') push('err', e.message)
+    // no terminal we could drive — hand over the command instead
+    const cmd = `cd ${m.cwd || '.'} && claude --resume ${state.session}`
+    await navigator.clipboard.writeText(cmd).catch(() => {})
+    toast(`Could not open a terminal — command copied: ${cmd}`, 'err')
   }
-
-  state.live.running = false
-  renderChat()
-  // the CLI appended to the same transcript — reload and jump to the end
-  await loadSessions(state.meta.projectId, { force: true })
-  await openSession(state.meta.projectId, state.session, '', { tail: true })
-  state.live = null
-  renderChat()
-  const sc = document.getElementById('chat-scroll')
-  if (sc) sc.scrollTop = sc.scrollHeight
 }
 
 function confirmModal(title, body, onYes) {
@@ -1014,19 +933,14 @@ document.addEventListener('click', async (e) => {
       $('#deep-search').value = ''
       return renderTree()
 
-    case 'load-more':
-      return loadMore()
+    case 'load-earlier':
+      return loadEarlier()
 
-    case 'send':
-      return sendPrompt()
-
-    case 'stop-live':
-      liveAbort?.abort()
-      if (state.live) state.live.running = false
-      return renderChat()
+    case 'open-terminal':
+      return openTerminal()
 
     case 'jump-end':
-      return openSession(state.meta.projectId, state.session, state.sub, { tail: true })
+      return openSession(state.meta.projectId, state.session, state.sub)
 
     case 'copy-resume': {
       const cmd = `cd ${btn.dataset.cwd || '.'} && claude --resume ${btn.dataset.sid}`
@@ -1056,10 +970,6 @@ document.addEventListener('change', (e) => {
     state.modal.scope = e.target.value
     return
   }
-  if (e.target.id === 'composer-mode') {
-    state.composerMode = e.target.value
-    return
-  }
   if (!e.target.closest('[data-action="toggle-tools"]')) return
   state.hideTools = e.target.checked
   renderChat()
@@ -1068,10 +978,6 @@ document.addEventListener('change', (e) => {
 document.addEventListener('input', (e) => {
   if (e.target.id === 'cleanup-days') {
     state.modal.days = Math.max(1, Number(e.target.value) || 1)
-    return
-  }
-  if (e.target.id === 'composer') {
-    state.draft = e.target.value
     return
   }
   if (e.target.id !== 'project-filter') return
@@ -1086,10 +992,6 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.modal) {
     state.modal = null
     renderModal()
-  }
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.target.id === 'composer') {
-    e.preventDefault()
-    sendPrompt()
   }
   if (e.key === 'Enter' && e.target.id === 'deep-search') {
     const q = e.target.value.trim()

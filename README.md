@@ -9,8 +9,8 @@ npm install
 npm run dev          # API on 127.0.0.1:5179, UI on http://localhost:5180
 ```
 
-Requires Node 20+ and a local Claude Code install (`claude` on `PATH`) if you
-want the "continue a session" feature. Nothing is configured by hand: every
+Requires Node 20+, and a local Claude Code install (`claude` on `PATH`) for the
+"open in terminal" button. Nothing is configured by hand: every
 project and session is discovered at runtime from `~/.claude/projects`
 (override with `CLAUDE_CONFIG_DIR`), and titles, paths, models and stats are read
 out of the transcripts themselves.
@@ -31,12 +31,11 @@ window), start/end/duration, file size, message and tool counts, total tokens
 branch, model, CLI version, and every subagent + workflow transcript belonging
 to the session (clickable).
 
-**Continue a session** — the composer at the bottom runs
-`claude --resume <id> --print … --output-format stream-json` in the session's own
-cwd and streams the answer back live. The CLI appends to the same transcript
-file, so the new turns appear in the UI when the stream ends. Permission mode is
-selectable (default / acceptEdits / plan / bypassPermissions); anything that
-would prompt is denied automatically (`--permission-prompts none`).
+**Open in terminal** — the button in the chat header opens a real terminal in
+the session's own `cwd` running `claude --resume <id>`, so you pick the
+conversation up where Claude Code left it. macOS uses Terminal.app (set
+`TERMINAL_APP=iTerm` for iTerm2), Linux uses `x-terminal-emulator`; if no
+terminal can be driven, the command is copied to the clipboard instead.
 
 **Search** — `Enter` in the top bar greps every transcript for a literal string
 (capped at 120 files, 90s) and lists the matching sessions.
@@ -66,7 +65,7 @@ server/
   index.js      Express API (:5179)
   store.js      transcript scanning, metadata, pagination, trash
   search.js     grep-backed deep search
-  continue.js   spawns `claude --resume` and streams ndjson
+  terminal.js   opens a terminal on a session with `claude --resume`
 src/
   main.js       UI (vanilla JS, full re-render per pane)
   api.js        fetch wrappers + ndjson streaming
@@ -80,7 +79,7 @@ src/
 - Everything runs on your machine. No transcript, path or token ever leaves it —
   the app has no telemetry and no outbound calls.
 - Both servers bind to loopback only (`HOST=127.0.0.1`), because the API serves
-  full transcripts and can start a `claude` process. Do not expose it to a
+  full transcripts and can open a terminal on your machine. Do not expose it to a
   network you do not trust.
 - The repo carries no data: only code. Your sessions stay in `~/.claude`, the
   metadata cache in `~/.claude/.session-browser-cache.json`, and deleted

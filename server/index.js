@@ -6,7 +6,7 @@ import {
   trashSession, listTrash, restoreTrash, purgeTrash, sessionFile, stats,
 } from './store.js'
 import { searchResults } from './search.js'
-import { continueSession } from './continue.js'
+import { openInTerminal } from './terminal.js'
 
 const app = express()
 app.use(express.json())
@@ -85,10 +85,10 @@ app.get('/api/search', wrap(async (req, res) => {
   res.json(await searchResults(q, ctrl.signal))
 }))
 
-app.post('/api/sessions/:pid/:sid/continue', wrap(async (req, res) => {
+app.post('/api/sessions/:pid/:sid/terminal', wrap(async (req, res) => {
   const { pid, sid } = req.params
   if (!safeId(pid) || !safeId(sid)) return res.status(400).json({ error: 'bad id' })
-  await continueSession(req, res)
+  await openInTerminal(req, res)
 }))
 
 app.get('/api/cleanup/preview', wrap(async (req, res) => {
