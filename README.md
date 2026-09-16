@@ -17,8 +17,12 @@ out of the transcripts themselves.
 
 ## What it does
 
-**Sidebar tree** — projects (resolved to their real paths on disk) with their
-sessions nested underneath: title, age, message count, size, context usage.
+**Sidebar tree** — projects (folder icon, bold, boxed when open) with their
+sessions nested underneath along a guide line, in lighter type: title, age,
+message count, size, context usage. A single click expands a folder, a double
+click lists that project's sessions as cards in the main pane — title, opening
+prompt, date, messages, size, tools, context and model — plus a project summary
+(path, totals, largest sessions) in the right rail.
 A pulsing blue dot marks whatever Claude Code is writing to right now (any
 transcript touched in the last 2 minutes), on both the session and its project.
 The tree polls `/api/activity` every 8s — a ~50 ms stat sweep — so ages refresh

@@ -17,6 +17,7 @@ const state = {
   sessionsByProject: {},   // pid -> [meta]
   loadingProjects: new Set(),
   project: null,
+  view: 'empty',   // 'empty' | 'project' | 'session'
   session: null,
   sub: '',                 // subagent transcript currently open (relative path)
   subagents: [],
@@ -34,6 +35,8 @@ const state = {
 }
 
 const $ = (sel) => document.querySelector(sel)
+
+let lastProjectClick = { id: null, at: 0 }
 
 /* ------------------------------------------------------------------ theme */
 
@@ -113,16 +116,17 @@ const projectName = (p) => p.path.split('/').filter(Boolean).slice(-2).join('/')
 const liveDot = (on) => (on ? '<span class="live-dot" title="active right now"></span>' : '')
 
 function sessionRow(s, { nested = true } = {}) {
-  const on = state.session === s.id
+  const on = state.session === s.id && state.view === 'session'
   const msgs = (s.counts?.user ?? 0) + (s.counts?.assistant ?? 0)
   return `
   <div data-action="open-session" data-pid="${esc(s.projectId)}" data-sid="${esc(s.id)}"
-    class="group flex cursor-pointer items-start gap-2 rounded-md ${nested ? 'ml-3 border-l border-line pl-2.5' : ''} py-1.5 pr-1.5
-           ${on ? 'bg-clay-soft' : 'hover:bg-cream'}">
+    class="group flex cursor-pointer items-start gap-2 rounded-r-md py-1.5 pr-1.5 ${
+      nested ? 'ml-[18px] border-l-2 pl-2.5' : 'pl-2'
+    } ${on ? 'border-clay bg-clay-soft' : nested ? 'border-line hover:border-ghost hover:bg-cream/70' : 'hover:bg-cream/70'}">
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-1.5">
         ${liveDot(state.live.sessions.has(`${s.projectId}/${s.id}`))}
-        <div class="truncate text-[12.5px] leading-tight ${on ? 'font-medium text-clay' : 'text-ink-soft'}">${esc(s.title || s.id)}</div>
+        <div class="truncate text-[12px] leading-tight ${on ? 'font-medium text-clay' : 'text-muted'}">${esc(s.title || s.id)}</div>
       </div>
       ${nested ? '' : `<div class="truncate text-[10px] text-muted">${esc(s.cwd || s.projectId)}</div>`}
       <div class="mt-0.5 flex items-center gap-1.5 text-[10px] text-faint">
@@ -181,16 +185,26 @@ function renderTree() {
           ? list
               .map((p) => {
                 const open = state.expanded.has(p.id)
+                const viewing = state.view === 'project' && state.project?.id === p.id
                 const sessions = state.sessionsByProject[p.id]
                 return `
-        <div class="mb-0.5">
-          <div data-action="toggle-project" data-id="${esc(p.id)}"
-            class="group flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1.5 ${open ? 'bg-cream' : 'hover:bg-cream/70'}">
-            <svg class="h-3 w-3 shrink-0 text-muted transition-transform ${open ? 'rotate-90' : ''}" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+        <div class="mb-1.5">
+          <div data-action="toggle-project" data-id="${esc(p.id)}" title="double-click to list the sessions in the main pane"
+            class="group flex cursor-pointer select-none items-center gap-1.5 rounded-lg border px-2 py-1.5 ${
+              viewing
+                ? 'border-clay/60 bg-clay-soft'
+                : open
+                  ? 'border-line bg-card'
+                  : 'border-transparent hover:border-line hover:bg-card/60'
+            }">
+            <svg class="h-3 w-3 shrink-0 text-ghost transition-transform ${open ? 'rotate-90' : ''}" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+            <svg class="h-4 w-4 shrink-0 ${viewing ? 'text-clay' : 'text-clay/70'}" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24">
+              <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17z"/>
+            </svg>
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5">
                 ${liveDot(state.live.projects.has(p.id))}
-                <div class="truncate text-[12.5px] font-medium text-ink">${esc(projectName(p))}</div>
+                <div class="truncate text-[13px] font-semibold tracking-tight ${viewing ? 'text-clay' : 'text-ink'}">${esc(projectName(p))}</div>
               </div>
               <div class="truncate text-[10px] text-faint">${p.sessions} sessions · ${bytes(p.size)} · ${esc(ago(p.mtime))}</div>
             </div>
@@ -200,7 +214,7 @@ function renderTree() {
               ? state.loadingProjects.has(p.id)
                 ? `<div class="ml-5 py-2 text-[11px] text-muted">loading sessions…</div>`
                 : sessions?.length
-                  ? sessions.map((s) => sessionRow(s)).join('')
+                  ? `<div class="mt-0.5">${sessions.map((s) => sessionRow(s)).join('')}</div>`
                   : `<div class="ml-5 py-2 text-[11px] text-faint">no sessions</div>`
               : ''
           }
@@ -282,7 +296,8 @@ function messageHtml(m) {
 
 function renderChat() {
   const el = $('#chat')
-  if (!state.session) {
+  if (state.view === 'project') return renderProjectView(el)
+  if (!state.session || state.view !== 'session') {
     el.innerHTML = `
       <div class="grid h-full place-items-center p-8 text-center">
         <div class="max-w-sm">
@@ -350,6 +365,81 @@ function renderChat() {
 `
 }
 
+function renderProjectView(el) {
+  const p = state.project
+  if (!p) return (el.innerHTML = '')
+  const sessions = state.sessionsByProject[p.id]
+  const loading = state.loadingProjects.has(p.id)
+  const totals = (sessions || []).reduce(
+    (a, s) => {
+      a.msgs += (s.counts?.user || 0) + (s.counts?.assistant || 0)
+      a.tools += s.counts?.tools || 0
+      a.out += s.tokens?.output || 0
+      return a
+    },
+    { msgs: 0, tools: 0, out: 0 }
+  )
+
+  el.innerHTML = `
+    <header class="shrink-0 border-b border-line bg-cream/70 px-4 py-2.5">
+      <div class="flex items-center gap-2">
+        <svg class="h-5 w-5 shrink-0 text-clay" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24">
+          <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17z"/>
+        </svg>
+        <h2 class="min-w-0 flex-1 truncate text-sm font-semibold text-ink">${esc(projectName(p))}</h2>
+        <button data-action="cleanup-project" class="rounded-lg border border-line px-2 py-1 text-[11px] text-muted hover:border-clay/60 hover:text-ink">clean up old</button>
+        <button data-action="reload-project" class="rounded-lg border border-line px-2 py-1 text-[11px] text-muted hover:border-clay/60 hover:text-ink">reload</button>
+      </div>
+      <div class="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10.5px] text-faint">
+        <span>${esc(p.path)}</span>
+        <span>· ${p.sessions} sessions</span>
+        <span>· ${bytes(p.size)}</span>
+        <span>· last activity ${esc(ago(p.mtime))}</span>
+        ${totals.msgs ? `<span>· ${num(totals.msgs)} messages</span>` : ''}
+        ${totals.tools ? `<span>· ${num(totals.tools)} tool calls</span>` : ''}
+        ${totals.out ? `<span>· ${num(totals.out)} output tokens</span>` : ''}
+      </div>
+    </header>
+    <div class="min-h-0 flex-1 overflow-y-auto">
+      <div class="mx-auto max-w-4xl space-y-1.5 p-4">
+        ${
+          loading
+            ? `<div class="py-10 text-center text-xs text-muted">Reading sessions…</div>`
+            : !sessions?.length
+              ? `<div class="py-10 text-center text-xs text-faint">This project has no sessions.</div>`
+              : sessions
+                  .map((s) => {
+                    const msgs = (s.counts?.user ?? 0) + (s.counts?.assistant ?? 0)
+                    const ctx = s.context?.last || 0
+                    return `
+          <div data-action="open-session" data-pid="${esc(s.projectId)}" data-sid="${esc(s.id)}"
+            class="group cursor-pointer rounded-xl border border-line bg-card px-3.5 py-3 hover:border-clay/50">
+            <div class="flex items-start gap-2">
+              ${liveDot(state.live.sessions.has(`${s.projectId}/${s.id}`))}
+              <h3 class="min-w-0 flex-1 truncate text-[13.5px] font-medium text-ink">${esc(s.title || s.id)}</h3>
+              <button data-action="del-session" data-pid="${esc(s.projectId)}" data-sid="${esc(s.id)}" title="Delete session"
+                class="hidden shrink-0 rounded p-0.5 text-muted hover:bg-rust/10 hover:text-rust group-hover:block">
+                <svg class="pointer-events-none h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+              </button>
+            </div>
+            ${s.firstPrompt ? `<p class="mt-1 line-clamp-2 text-[12px] leading-snug text-muted">${esc(s.firstPrompt.slice(0, 220))}</p>` : ''}
+            <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] text-faint">
+              <span>${esc(dateTime(s.lastTs || s.mtime))}</span>
+              <span>· ${esc(ago(s.lastTs || s.mtime))}</span>
+              <span>· ${msgs} messages</span>
+              <span>· ${bytes(s.size)}</span>
+              ${s.counts?.tools ? `<span>· ${s.counts.tools} tools</span>` : ''}
+              ${ctx ? `<span>· <span class="${ctxColor(ctx)}">${Math.round((ctx / windowFor(ctx)) * 100)}% ctx</span></span>` : ''}
+              ${s.models?.length ? `<span>· ${esc(s.models.join(', '))}</span>` : ''}
+            </div>
+          </div>`
+                  })
+                  .join('')
+        }
+      </div>
+    </div>`
+}
+
 /* ---------------------------------------------------------------- details */
 
 function duration(ms) {
@@ -371,8 +461,45 @@ function renderDetails() {
   el.classList.toggle('xl:flex', state.showDetails)
   el.classList.toggle('flex', state.showDetails)
   if (!state.showDetails) return
+  if (state.view === 'project') {
+    const p = state.project
+    const sessions = state.sessionsByProject[p?.id] || []
+    const top = [...sessions].sort((a, b) => b.size - a.size).slice(0, 6)
+    el.innerHTML = p
+      ? `<div class="space-y-4 p-3.5">
+          <section>
+            <h3 class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">Project</h3>
+            ${row('Folder', esc(p.path), 'text-clay')}
+            ${row('Sessions', String(p.sessions))}
+            ${row('On disk', bytes(p.size))}
+            ${row('Last active', esc(ago(p.mtime)))}
+          </section>
+          ${
+            top.length
+              ? `<section>
+                  <h3 class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Largest sessions</h3>
+                  <div class="space-y-1">
+                    ${top
+                      .map(
+                        (s) => `
+                      <div data-action="open-session" data-pid="${esc(s.projectId)}" data-sid="${esc(s.id)}"
+                        class="cursor-pointer rounded-md border border-line px-2 py-1.5 hover:border-clay/60">
+                        <div class="truncate text-[11.5px] text-ink-soft">${esc(s.title || s.id)}</div>
+                        <div class="text-[10px] text-faint">${bytes(s.size)} · ${esc(ago(s.lastTs || s.mtime))}</div>
+                      </div>`
+                      )
+                      .join('')}
+                  </div>
+                </section>`
+              : ''
+          }
+        </div>`
+      : ''
+    return
+  }
+
   const m = state.meta
-  if (!m) {
+  if (!m || state.view !== 'session') {
     el.innerHTML = `<div class="p-4 text-[11.5px] text-faint">No session selected</div>`
     return
   }
@@ -725,7 +852,20 @@ async function toggleProject(pid) {
   await loadSessions(pid)
 }
 
+async function openProjectView(pid) {
+  state.project = state.projects.find((p) => p.id === pid) || state.project
+  state.view = 'project'
+  state.expanded.add(pid)
+  renderTree()
+  renderChat()
+  renderDetails()
+  await loadSessions(pid)
+  if (state.view === 'project') renderChat()
+}
+
 async function openSession(pid, sid, sub = '') {
+  state.view = 'session'
+  state.project = state.projects.find((p) => p.id === pid) || state.project
   state.session = sid
   state.sub = sub
   state.head = 0
@@ -882,8 +1022,17 @@ document.addEventListener('click', async (e) => {
   const a = btn.dataset.action
 
   switch (a) {
-    case 'toggle-project':
-      return toggleProject(btn.dataset.id)
+    case 'toggle-project': {
+      // single click expands, double click lists the sessions in the main pane
+      const id = btn.dataset.id
+      const now = Date.now()
+      if (lastProjectClick.id === id && now - lastProjectClick.at < 350) {
+        lastProjectClick = { id: null, at: 0 }
+        return openProjectView(id)
+      }
+      lastProjectClick = { id, at: now }
+      return toggleProject(id)
+    }
 
     case 'open-session': {
       e.stopPropagation()
@@ -943,6 +1092,14 @@ document.addEventListener('click', async (e) => {
       if (btn.tagName !== 'BUTTON' && e.target !== btn) return
       state.modal = null
       return renderModal()
+
+    case 'cleanup-project':
+      state.modal = { kind: 'cleanup', days: 30, scope: 'project', loading: false, data: null, selected: new Set(), confirm: false, working: false }
+      return renderModal()
+
+    case 'reload-project':
+      await loadSessions(state.project.id, { force: true })
+      return renderChat()
 
     case 'cleanup':
       state.modal = { kind: 'cleanup', days: 30, scope: 'all', loading: false, data: null, selected: new Set(), confirm: false, working: false }
