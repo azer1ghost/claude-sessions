@@ -149,6 +149,7 @@ function renderTree() {
   const el = $('#tree')
   const focused = document.activeElement
   const keepFilter = focused?.id === 'project-filter' ? focused.selectionStart : null
+  const keepScroll = $('#tree-scroll')?.scrollTop ?? 0
   const q = state.projectFilter.toLowerCase()
   const list = state.projects.filter((p) => !q || p.path.toLowerCase().includes(q) || p.id.toLowerCase().includes(q))
 
@@ -174,7 +175,7 @@ function renderTree() {
         class="w-full rounded-lg border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder-ghost outline-none focus:border-clay/70" />
     </div>
     ${searchBlock}
-    <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
+    <div id="tree-scroll" class="min-h-0 flex-1 overflow-y-auto p-1.5">
       ${
         list.length
           ? list
@@ -209,6 +210,15 @@ function renderTree() {
           : `<div class="p-4 text-center text-xs text-faint">No projects</div>`
       }
     </div>`
+
+  // a background refresh must not move the reader: put scroll, focus and caret back
+  const scroller = $('#tree-scroll')
+  if (scroller) scroller.scrollTop = keepScroll
+  if (keepFilter !== null) {
+    const inp = $('#project-filter')
+    inp?.focus()
+    inp?.setSelectionRange(keepFilter, keepFilter)
+  }
 }
 
 /* ------------------------------------------------------------------- chat */
@@ -636,6 +646,15 @@ function renderModal() {
 
 /* ---------------------------------------------------------------- actions */
 
+function treeSignature() {
+  return [
+    state.projects.map((p) => `${p.id}:${p.mtime}:${p.sessions}`).join(','),
+    [...state.live.sessions].sort().join(','),
+    [...state.expanded].sort().join(','),
+    Math.floor(Date.now() / 60_000), // let the "x minutes ago" labels tick over
+  ].join('|')
+}
+
 async function pollActivity() {
   let a
   try {
@@ -643,6 +662,7 @@ async function pollActivity() {
   } catch {
     return
   }
+  const before = treeSignature()
   state.live = {
     sessions: new Set(a.active.map((x) => `${x.projectId}/${x.id}`)),
     projects: new Set(a.active.map((x) => x.projectId)),
@@ -669,7 +689,7 @@ async function pollActivity() {
     const row = state.sessionsByProject[x.projectId]?.find((s) => s.id === x.id)
     if (row) { row.mtime = x.mtime; row.size = x.size }
   }
-  if (!state.modal) renderTree()
+  if (!state.modal && treeSignature() !== before) renderTree()
 }
 
 async function loadProjects() {
