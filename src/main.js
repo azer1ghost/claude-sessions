@@ -294,7 +294,23 @@ function messageHtml(m) {
   </article>`
 }
 
+// re-rendering the main pane must not throw the reader back to the top
+let paneKey = null
+const mainScroller = () => $('#chat-scroll') || $('#project-scroll')
+const currentPaneKey = () =>
+  state.view === 'project' ? `p|${state.project?.id || ''}` : `s|${state.session || ''}|${state.sub}`
+
 function renderChat() {
+  const key = currentPaneKey()
+  const before = mainScroller()
+  const keep = before && paneKey === key ? before.scrollTop : null
+  renderPane()
+  paneKey = key
+  const after = mainScroller()
+  if (after && keep !== null) after.scrollTop = keep
+}
+
+function renderPane() {
   const el = $('#chat')
   if (state.view === 'project') return renderProjectView(el)
   if (!state.session || state.view !== 'session') {
@@ -400,7 +416,7 @@ function renderProjectView(el) {
         ${totals.out ? `<span>· ${num(totals.out)} output tokens</span>` : ''}
       </div>
     </header>
-    <div class="min-h-0 flex-1 overflow-y-auto">
+    <div id="project-scroll" class="min-h-0 flex-1 overflow-y-auto">
       <div class="mx-auto max-w-4xl space-y-1.5 p-4">
         ${
           loading
